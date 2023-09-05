@@ -1,0 +1,52 @@
+# /etc/fw/fw.kern
+# initialize kernel variables.
+#-AndrewX
+
+# 1: enable tcp syn cookies.
+# 2: masq dynaddr.
+# 3: enable always defragging.
+# 4: ignore broadcast echos.
+# 5: ignore bogus error responses.
+# 6: enable ip filtering.
+# 7: disable icmp redirect acceptance.
+# 8: disable source routed Packets.
+# 9: log packets.
+
+if [ -f /proc/sys/net/ipv4/tcp_syncookies ]; then
+  echo 1 > /proc/sys/net/ipv4/tcp_syncookies
+fi
+
+if [ -f /proc/sys/net/ipv4/ip_dynaddr ]; then
+  echo 1 > /proc/sys/net/ipv4/ip_dynaddr
+fi
+
+if [ -f /proc/sys/net/ipv4/ip_always_defrag ]; then
+  echo 1 > /proc/sys/net/ipv4/ip_always_defrag
+fi
+
+if [ -f /proc/sys/net/ipv4/icmp_echo_ignore_broadcasts ]; then
+  echo 1 > /proc/sys/net/ipv4/icmp_echo_ignore_broadcasts
+fi
+
+if [ -f /proc/sys/net/ipv4/icmp_ignore_bogus_error_responses ]; then
+  echo 1 > /proc/sys/net/ipv4/icmp_ignore_bogus_error_responses
+fi
+
+for x in /proc/sys/net/ipv4/conf/*/rp_filter; do
+    echo 1 > $x
+done
+
+for x in /proc/sys/net/ipv4/conf/*/accept_redirects; do
+    echo 0 > $x
+done
+
+for x in /proc/sys/net/ipv4/conf/*/accept_source_route; do
+    echo 0 > $x
+done
+
+for x in /proc/sys/net/ipv4/conf/*/log_martians; do
+    echo 0 > $x
+done
+
+#-EOF
+

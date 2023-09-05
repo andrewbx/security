@@ -1,0 +1,7 @@
+# /etc/fw/fw6.bot
+# Allow bot connections.
+#-AndrewX
+
+# Remote Address   Local Port(s)  Name
+
+#-EOF

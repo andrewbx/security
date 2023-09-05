@@ -1,0 +1,14 @@
+# /etc/fw/fw.ports
+# Refuse port connections listed below.
+#-AndrewX
+
+# Port(s)   Prot   Opt          Act(out)   Act(in)   Log  Name
+
+1080        tcp    --syn        REJECT     DROP      0    # socks.
+2000        tcp    --syn        REJECT     DROP      0    # openwin.
+2049        tcp    --syn        REJECT     DROP      0    # nfs.
+2049        udp    -            REJECT     DROP      0    # nfs.
+6000:6063   tcp    --syn        REJECT     DROP      0    # xwin.
+
+#-EOF
+

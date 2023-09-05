@@ -1,0 +1,5 @@
+# /etc/fw/fw6.telnetd
+# Allow incoming telnet connections.
+#-AndrewX
+
+#-EOF

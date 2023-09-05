@@ -1,0 +1,7 @@
+# /etc/fw/fw6.bnc
+# Allow incoming bnc connections.
+#-AndrewX
+
+# Address	 Port(s)  Name
+
+#-EOF

@@ -1,0 +1,5 @@
+# /etc/fw/fw6.dns.in
+# Allow dns queries from following hosts.
+#-AndrewX
+
+#-EOF

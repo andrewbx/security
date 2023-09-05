@@ -1,0 +1,18 @@
+# /etc/fw/fw6.irc
+# Allow irc/auth connections from hosts below.
+#-AndrewX
+
+# Address	 # Port(s)	# Name
+
+3ffe:8100:0200:1fff:0000:0000:0000:0016/128	6667:6669 # irc.wanadoo.be
+2001:06e0:0200:0000:0a00:20ff:fec1:be86/128	6667:6669 # irc.skynet.be
+3ffe:80c0:0200:0002:0250:b7ff:fe14:6155/128	6667:6669 # irc.missingU.com
+3ffe:8170:0001:ffff:0250:a5ff:fe13:17f0/128	6667:6669 # irc6.edisontel.com
+2001:0750:0002:0000:0202:a5ff:fef0:aac7/128	6667:6669 # irc6.edisontel.com
+2001:06b8:0001:0000:0210:83ff:fe35:2816/128	6667:6669 # irc6.ngnet.it
+2001:06e0:0208:0000:0204:76ff:fe23:2024/128	6667:6669 # irc.zzyzz.net
+2001:0670:008e:f000:0000:0000:0000:0002/128	6667:6669 # eu-fi.irc6.net
+2001:06e8:0000:0000:0000:0000:0000:0001/128	6667:6669 # irc.song.fi
+2001:06e0:020a:00ff:0000:0000:0000:6667/128	6667:6669 # irc.ipv6.xs4all.nl
+
+#-EOF

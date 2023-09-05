@@ -1,0 +1,19 @@
+# /etc/fw/fw.deny
+# Deny all (tcp/udp/icmp) from hosts below.
+#-AndrewX
+
+62.236.92.0/24          # *.studiobravo.fi / *.kaapeli.net
+216.209.172.0/24        # guelph-*.sympatico.ca
+217.128.20.0/24         # AFontenayssB-102-1-3-*.abo.wanadoo.fr
+212.66.96.130           # server.maryworlds.com
+61.123.156.0/24		# *.ppp11.odn.ad.jp
+213.158.0.0/24		# *.telegraph.spb.ru
+199.203.133.0/24	# ppp*.applicom.co.il
+192.114.70.0/24		# bzq*.bezeqint.net
+212.208.136.0/24	# Unresolved.
+212.199.40.0/24		# Unresolved.
+217.57.0.0/16           # *.interbusiness.it
+217.160.215.15          # avu-uv.de.
+207.3.91.2              # fscxcorp.com.
+
+#-EOF

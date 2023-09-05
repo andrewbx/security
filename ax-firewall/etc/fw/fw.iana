@@ -1,0 +1,13 @@
+# /etc/fw/fw.iana
+# Deny private/iana reserved addresses.
+#-AndrewX
+
+10.0.0.0/8              # class A private.
+127.0.0.1/8             # Loopback.
+169.254.0.0/16          # 169.254.*
+172.16.0.0/12           # class B private.
+192.0.2.0/24            # 192.0.2.*
+192.168.0.0/16          # class C private.
+224.0.0.0/3             # class D, E + unallocated.
+
+#-EOF

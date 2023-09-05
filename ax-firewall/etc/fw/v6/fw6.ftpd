@@ -1,0 +1,5 @@
+# /etc/fw/fw6.ftpd
+# Allow incoming ftp connections.
+#-AndrewX
+
+#-EOF

@@ -1,0 +1,9 @@
+# /etc/fw/fw.pop3
+# Allow incoming pop3 connections.
+#-AndrewX
+
+# Address
+
+192.168.0.0/16		# LAN.
+
+#-EOF

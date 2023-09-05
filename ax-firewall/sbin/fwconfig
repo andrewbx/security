@@ -1,0 +1,191 @@
+#!/bin/sh
+#
+# AX-firewall v0.51 configuration script.
+#-AndrewX
+
+cfgdir="/etc/fw"
+fwfile="/sbin/fw"
+temp="/tmp"
+
+menu () {
+dialog --title "AX-firewall v0.51 -AndrewX" --menu "\
+\n      Welcome to the firewall configuration tool.\n\
+\nNote: Use '+'. '-', TAB or arrow keys to operate menu.\
+\n Here's your list of choices, what do you wish to do?" 0 0 0 \
+"add_deny_ip" "Add an address to deny." \
+"add_deny_port" "Add a port to deny." \
+"add_ssh" "Add an address for ssh." \
+"add_dns" "Add an address for dns queries." \
+"add_auth" "Add an address for identd." \
+"add_dcc" "Add an address for dcc." \
+"rem_deny_ip" "Remove an address from deny." \
+"rem_deny_port" "Remove a port from deny." \
+"rem_ssh" "Remove an address for ssh." \
+"rem_dns" "Remove an address for dns queries." \
+"rem_auth" "Remove an address for identd." \
+"rem_dcc" "Remove an address for dcc." \
+"fw_enable" "Enable firewall." \
+"fw_disable" "Disable firewall." \
+"fw_restart" "Restart firewall." \
+"fw_list" "List current rules." \
+"exit" "Exit firewall configuration." 2> $temp/menuopt
+if [ $? = 1 -o $? = 255 ]; then
+  rm -f $temp/menuopt
+  rm -f $temp/address
+  rm -f $temp/name
+  exit
+fi
+menuoption="`cat $temp/menuopt`"
+check_option
+}
+
+add_ip () {
+while [ 0 ]; do
+ dialog --title "Enter Address." --inputbox "\nPlease enter\
+ the address you wish to be added to $cfgdir/fw.$1.\n
+ Example: 192.168.10.1/24. (Mask optional)" 11 70 2> $temp/address
+  if [ $? = 1 -o $? = 255 ]; then
+    menu
+  fi
+  address="$(cat $temp/address)"
+  if [ ! "$address" = "" ]; then
+    break
+  fi
+done
+if [ "$(cat $cfgdir/fw.$1 | grep "$address" | cut -d \/ -f 1)" = "$address" -o \
+     "$(cat $cfgdir/fw.$1 | grep "$address" | awk '{print $1}')" = "$address" ]; then
+ dialog --title "Remove error." --msgbox "\nDoh! Address: ($address) already found\
+ in file, are you stupid?\n" 0 0
+  menu
+else
+ while [ 0 ]; do
+ case "$1" in
+ "ssh" ) dialog --title "Enter email address." --inputbox "\nPlease enter\
+ the name and email for address: ($address).\n
+ Example: My name <me@foobar.net>" 11 70 2> $temp/name ;;
+ *     ) dialog --title "Enter the host name." --inputbox "\nPlease enter\
+ the hostname for address: ($address).\n\n Example: *.foobar.net" 11 70 2> $temp/name ;;
+ esac
+  if [ $? = 1 -o $? = 255 ]; then
+    menu
+  fi
+  name="$(cat $temp/name)"
+  if [ ! "$name" = "" ]; then
+    break
+  fi
+ done
+cat << EOF > $temp/fw.add
+# $cfgdir/fw.$1
+# $2.
+#-AndrewX
+
+`cat $cfgdir/fw.$1 | grep "[0-9]"`
+`echo -e "$address \t# $name."`
+
+#-EOF
+EOF
+ case "$1" in
+ "ssh" ) dialog --title "Add address." --yesno "\nIP    : $address\nEmail :\
+ $name\nFile  : $cfgdir/fw.$1\n\nAdd?\n" 0 0 ;;
+ *     ) dialog --title "Add address." --yesno "\nIP       : $address\nHostname :\
+ $name\nFile     : $cfgdir/fw.$1\n\nAdd?\n" 0 0 ;;
+ esac
+  if [ $? = 0 ]; then
+    mv $temp/fw.add $cfgdir/fw.$1
+    chmod 600 $cfgdir/fw.$1
+    dialog --title "Success." --msgbox "\nAddress: ($address) added.\n" 0 0
+  else
+    rm -f $temp/fw.add
+  fi
+fi
+menu
+}
+
+rem_ip () {
+while [ 0 ]; do
+ dialog --title "Remove address." --inputbox "\nPlease enter\
+ the address you wish to remove from $cfgdir/fw.$1.\n
+ Example: 192.168.10.1. (Mask not required)" 11 70 2> $temp/address
+  if [ $? = 1 -o $? = 255 ]; then
+    menu
+  fi
+  address="$(cat $temp/address)"
+  if [ ! "$address" = "" ]; then
+    break
+  fi
+ done
+ if [ "$(cat $cfgdir/fw.$1 | grep "$address" | cut -d \/ -f 1)" = "" -o \
+      "$(cat $cfgdir/fw.$1 | grep "$address" | awk '{print $1}')" = "" ]; then
+ dialog --title "Remove error." --msgbox "\nDoh! Address: ($address) not found in\
+ file, or duplicate matches found.\n" 0 0
+ else
+  cat $cfgdir/fw.$1 | grep -v "$address" > %temp/fw.rem
+  name=$(cat $cfgdir/fw.$1 | grep "$address" | awk '{print $3,$4,$5,$6,$7,$8}')
+  case "$1" in
+  "ssh" ) dialog --title "Remove address." --yesno "\nIP    : $address\nEmail :\
+ $name\nFile  : $cfgdir/fw.$1\n\nRemove?\n" 0 0 ;;
+  *     ) dialog --title "Remove address." --yesno "\nIP       : $address\nHostname :\
+ $name\nFile     : $cfgdir/fw.$1\n\nRemove?\n" 0 0 ;;
+  esac
+  if [ $? = 0 ]; then
+    mv $temp/fw.rem $cfgdir/fw.$1
+    chmod 600 fw.$1
+    dialog --title "Success." --msgbox "\nAddress: ($address) removed.\n" 0 0
+  else
+    rm -f %temp/fw.rem
+  fi
+ fi
+menu
+}
+
+fw_exec () {
+$fwfile "$1" > $temp/fw.txt
+dialog --title "$2." --textbox "fw.txt" 0 0
+rm -f $temp/fw.txt
+menu
+}
+  
+not_impl () {
+dialog --title "Not implemented." --msgbox "\nNot implemented yet.\n" 0 0
+menu
+}
+
+check_option () {
+while [ 0 ]; do
+  case "$menuoption" in
+  "add_deny_ip")	add_ip deny "Deny address (tcp/udp/icmp)" ;;
+  "add_deny_port")	not_impl ;;
+  "add_ssh")		add_ip ssh "Allow incoming ssh connections" ;;
+  "add_dns")		add_ip dns "Allow dns queries" ;;
+  "add_auth")		add_ip auth "Allow auth connections" ;;
+  "add_dcc")		add_ip dcc "Allow dcc chat connections" ;;
+  "rem_deny_ip")	rem_ip deny ;;
+  "rem_deny_port")      not_impl ;;
+  "rem_ssh")            rem_ip ssh ;;
+  "rem_dns")            rem_ip dns ;;
+  "rem_auth")           rem_ip auth ;;
+  "rem_dcc")            rem_ip dcc ;;
+  "fw_enable")		fw_exec e "Enable firewall" ;;
+  "fw_disable")		fw_exec d "Disable firewall" ;;
+  "fw_restart")		fw_exec r "Restart firewall" ;;
+  "fw_list")		fw_exec l "List firewall rules" ;;
+  *)			exit ;;
+  esac
+done
+}
+
+# begin
+
+if [ ! -d $cfgdir ]; then
+  echo "error: config directory not found."
+  exit 1
+else
+  if [ ! -f $fwfile ]; then
+    echo "error: fw file not found."
+    exit 1
+  fi
+fi
+
+menu
+
+#-EOF

@@ -1,0 +1,5 @@
+# /etc/fw/fw6.deny
+# Deny all (tcp/udp/icmp) from hosts below.
+#-AndrewX
+
+#-EOF

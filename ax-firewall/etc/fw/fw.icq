@@ -1,0 +1,13 @@
+# /etc/fw/fw.icq
+# Allow icq connections.
+#-AndrewX
+
+205.188.153.97          # fes-d001.icq.aol.com.
+205.188.153.98          # fes-d002.icq.aol.com.
+205.188.153.99          # fes-d003.icq.aol.com.
+205.188.153.100		# fes-d004.icq.aol.com.
+205.188.153.101		# fes-d005.icq.aol.com.
+205.188.153.102         # fes-d006.icq.aol.com.
+205.188.153.103         # fes-d007.icq.aol.com.
+
+#-EOF

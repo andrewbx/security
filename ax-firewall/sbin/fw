@@ -1,0 +1,52 @@
+#!/bin/sh
+#
+# ./fw: Simple script to enable/disable firewall. -AndrewX
+
+fw_loc_dir="/etc/fw"
+fw_run_file="rc.firewall"
+iptool="/sbin/iptables"
+
+echo
+echo "AX-firewall v1.0 by AndrewX"
+echo
+
+case "$1" in
+  'e')  $iptool -F
+        $iptool -F -t nat
+	if [ -f $fw_loc_dir/$fw_run_file ]; then
+           $fw_loc_dir/$fw_run_file
+        else
+           echo "error: $fw_run_file not found."
+           echo
+        fi
+        ;;
+  'd')  echo "setting default policies to accept."
+        $iptool -P INPUT ACCEPT
+        $iptool -P OUTPUT ACCEPT
+        $iptool -P FORWARD ACCEPT
+        echo "flushing rulesets."
+        $iptool -F
+#       $iptool -F -t nat
+        echo "firewall disabled."
+        echo
+        ;;
+  'r')  $iptool -P INPUT ACCEPT
+        $iptool -P OUTPUT ACCEPT
+        $iptool -P FORWARD ACCEPT
+        $iptool -F
+        $iptool -F -t nat
+        if [ -f $fw_loc_dir/$fw_run_file ]; then
+           $fw_loc_dir/$fw_run_file
+        else
+           echo "error: $fw_run_file not found."
+           echo
+        fi
+        ;;
+  'l')  $iptool -L -v -n
+        ;;
+  *)    echo "Syntax: fw [ e | d | r | l ]"
+        echo
+        echo "(e=enable, d=disable, r=restart, l=list rules)"
+        echo
+        ;;
+esac

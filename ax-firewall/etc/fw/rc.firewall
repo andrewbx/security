@@ -1,0 +1,1111 @@
+#!/bin/sh
+#*********************************************************************
+# AX-firewall v1.0 2001/2. -AndrewX
+#*********************************************************************
+# initialisation.
+
+cfgdir="/etc/fw"
+
+if [ ! -f $cfgdir/fw.conf ]; then
+  echo "error: config file not found."
+  exit 1
+else
+  . $cfgdir/fw.conf
+fi
+
+ip () {
+  argi=$(echo $* | cut -d \] -f 2)
+  case "$1" in
+    '[i]'  ) $iptool -A INPUT  -i $ei $argi ;;
+    '[o]'  ) $iptool -A OUTPUT -o $ei $argi ;;
+    '[f]'  ) $iptool -A FORWARD $argi ;;
+    '[t]'  ) $iptool -t $argi ;;
+    '[m]'  ) $iptool -M $argi ;;
+    '[p]'  ) $iptool -P $argi ;;
+    '[x]'  ) $iptool -X ;;
+    '[c]'  ) $iptool -F ;;
+    *      ) ;;
+  esac
+  unset argi
+}
+
+home=$($ifconf $ei | grep inet | cut -d : -f 2 | cut -d \  -f 1)
+
+# ftp conntrack.
+
+modprobe ip_nat_ftp
+modprobe ip_conntrack_ftp
+
+# pptp conntrack.
+
+modprobe ip_conntrack_pptp
+modprobe ip_conntrack_proto_gre
+modprobe ip_nat_pptp
+modprobe ip_nat_proto_gre
+
+echo "device: ($ei) home ip: ($home)"
+echo
+
+# kernel variables.
+
+echo -n "setting kernel variables..       "
+if [ -f $cfgdir/fw.kern ]; then
+   if [ "$kernel" == "1" ]; then
+      source $cfgdir/fw.kern
+      echo "ok. (fw.kern)"
+   else
+      echo "disabled."
+   fi
+else
+   echo "file not found. (fw.kern)"
+fi
+
+#*********************************************************************
+# flush existing rule sets.
+
+ip [x]
+ip [c]
+ip [c] -t nat
+
+# default input policy DROP.
+
+ip [p] INPUT   ACCEPT
+ip [p] OUTPUT  ACCEPT
+ip [p] FORWARD ACCEPT
+ip [t] nat -P POSTROUTING ACCEPT
+ip [t] nat -P PREROUTING ACCEPT
+ip [t] nat -P OUTPUT ACCEPT
+
+# setup masquerading.
+
+echo -n "masquerading for internal lan..  "
+if [ -f $cfgdir/fw.lan ]; then
+   cat $cfgdir/fw.lan | grep "^[0-9]" | awk '{print $1}' | \
+   while read x
+     do
+       ip [t] nat -A POSTROUTING -o eth0 -s $x -j MASQUERADE
+     done
+   echo "ok. (fw.lan)"
+else
+   echo "file not found. (fw.lan)"
+fi
+
+ip [t] nat -A POSTROUTING -o $ei -s $home -j ACCEPT
+ip [t] nat -A OUTPUT -o $ei -s $home -j ACCEPT
+
+ip [f] -m state --state NEW,ESTABLISHED,RELATED -j ACCEPT
+ip [f] -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+
+#*********************************************************************
+# tos flags.
+#
+# Minimize-Delay 16 (0x10)
+# Maximize-Throughput 8 (0x08)
+# Maximize-Reliability 4 (0x04)
+# Minimize-Cost 2 (0x02)
+# Normal-Service 0 (0x00)
+
+echo -n "setting tos flags..              "
+ip [o] -p tcp -d $any --dport telnet -m tos --tos 0x10
+ip [o] -p tcp -d $any --dport ftp -m tos --tos 0x10
+ip [o] -p tcp -d $any --dport ftp-data -m tos --tos 0x08
+ip [o] -p tcp -d $any --dport http -m tos --tos 0x10
+ip [o] -p tcp -d $any --dport irc -m tos --tos 0x10
+echo "ok."
+
+# deny fragmented packets.
+
+echo -n "refuse fragmented packets..      "
+ip [i] -f -j DROP
+echo "ok."
+
+#*********************************************************************
+# loopback.
+
+echo -n "accept loopback i/o..            "
+$iptool -A INPUT  -i $local -j ACCEPT
+$iptool -A OUTPUT -o $local -j ACCEPT
+echo "ok."
+
+echo -n "accepting internal lan..         "
+if [ -f $cfgdir/fw.lan ]; then
+   cat $cfgdir/fw.lan | grep "^[0-9]" | awk '{print $1}' | \
+   while read x
+     do
+       $iptool -A INPUT -i eth0 -s $x -j ACCEPT
+       $iptool -A OUTPUT -o eth0 -d $x -j ACCEPT
+     done
+   echo "ok. (fw.lan)"
+else
+   echo "file not found. (fw.lan)"
+fi
+
+#*********************************************************************
+# bad addresses.
+
+ip [i] -s $home -j DROP
+
+# block loopback interface.
+
+ip [o] -s $loopback -j DROP
+
+# block malformed broadcast packets.
+
+ip [i] -s $bc_dest -j DROP
+ip [i] -d $bc_src  -j DROP
+ip [o] -s $bc_dest -j DROP
+ip [o] -d $bc_src  -j DROP
+
+#*********************************************************************
+# block reserved IANA addresses.
+
+echo -n "refuse private/iana reserved..   "
+if [ -f $cfgdir/fw.iana ]; then
+   cat $cfgdir/fw.iana | grep "^[0-9]" | awk '{print $1}' | \
+   while read x
+     do
+       ip [i] -s $x -j DROP
+     done
+   echo "ok. (fw.iana)"
+else
+   echo "file not found. (fw.iana)"
+fi
+
+#*********************************************************************
+# refuse connections from ip's defined in .deny.
+
+echo -n "refuse network/hosts from file.. "
+if [ -f $cfgdir/fw.deny ]; then
+   cat $cfgdir/fw.deny | grep "^[0-9]" | awk '{print $1}' | \
+   while read x
+     do
+       ip [i] -s $x -j DROP
+     done
+   echo "ok. (fw.deny)"
+else
+   echo "file not found. (fw.deny)"
+fi
+
+#*********************************************************************
+# non-priviledged ports.
+
+echo -n "refuse ports from file..         "
+if [ -f $cfgdir/fw.ports ]; then
+   cat $cfgdir/fw.ports | grep "^[0-9]" | \
+   while read port prot opt oact iact log
+     do
+       if [ "$opt" == "-" ]; then
+         opt=" "
+       fi
+       if [ "$log" == "1" ]; then
+         if [ "$oact" != "-" ]; then
+            ip [o] -p $prot $opt \
+                   -s $home \
+                   -d $any --dport $port -j LOG
+            ip [o] -p $prot $opt \
+                   -s $home \
+                   -d $any --dport $port -j $oact
+         fi
+         if [ "$iact" != "-" ]; then
+            ip [i] -p $prot $opt \
+                   -d $home --dport $port -j LOG
+	    ip [i] -p $prot $opt \
+                   -d $home --dport $port -j $iact
+         fi
+       else
+         if [ "$oact" != "-" ]; then
+            ip [o] -p $prot $opt \
+                   -s $home \
+                   -d $any --dport $port -j $oact
+         fi
+         if [ "$iact" != "-" ]; then
+            ip [i] -p $prot $opt \
+                   -d $home --dport $port -j $iact
+         fi
+       fi
+     done
+   echo "ok. (fw.ports)"
+else
+   echo "file not found. (fw.ports)"
+fi
+
+#*********************************************************************
+# vpn: pptp server access.
+
+ip [i] -p tcp \
+       -s $any --sport $uprv_ports \
+       -d $home --dport 1723 -j ACCEPT
+
+ip [o] -p tcp ! --syn \
+       -s $home --sport 1723 \
+       -d $any --dport $uprv_ports -j ACCEPT
+
+#*********************************************************************
+# vpn: openvpn server access.
+
+ip [i] -p udp \
+       -s 62.3.227.92 --sport $uprv_ports \
+       -d $home --dport 5000 -j ACCEPT
+
+ip [o] -p udp \
+       -s $home --sport 5000 \
+       -d 62.3.227.92 --dport $uprv_ports -j ACCEPT
+
+#*********************************************************************
+# gre: tunnel access.
+
+ip [i] -p 47 -j ACCEPT
+ip [o] -p 47 -j ACCEPT
+
+#*********************************************************************
+# pptp: tunnel access.
+
+$iptool -A INPUT  -i ppp+ -j ACCEPT
+$iptool -A OUTPUT -o ppp+ -j ACCEPT
+
+#*********************************************************************
+# tun: tunnel access.
+
+$iptool -A INPUT  -i tun+ -j ACCEPT
+$iptool -A OUTPUT -o tun+ -j ACCEPT
+
+#*********************************************************************
+# snmp: client access.
+
+ip [o] -p udp \
+       -s $home --sport $uprv_ports \
+       -d $any --dport 161 -j ACCEPT
+
+ip [i] -p udp \
+       -s $any --sport 161 \
+       -d $home --dport $uprv_ports -j ACCEPT
+
+#*********************************************************************
+# rsync: client access.
+
+ip [o] -p tcp \
+       -s $home --sport $uprv_ports \
+       -d $any --dport 873 -j ACCEPT
+
+ip [i] -p tcp ! --syn \
+       -s $any --sport 873 \
+       -d $home --dport $uprv_ports -j ACCEPT
+
+#*********************************************************************
+# razor2: client access.
+
+ip [o] -p tcp \
+       -s $home --sport $uprv_ports \
+       -d $any --dport 2703 -j ACCEPT
+
+ip [i] -p tcp ! --syn \
+       -s $any --sport 2703 \
+       -d $home --dport $uprv_ports -j ACCEPT
+
+#*********************************************************************
+# pyzor: client access.
+
+ip [o] -p udp \
+       -s $home --sport $uprv_ports \
+       -d $any --dport 24441 -j ACCEPT
+
+ip [i] -p udp \
+       -s $any --sport 24441 \
+       -d $home --dport $uprv_ports -j ACCEPT
+
+#*********************************************************************
+# dcc: client access.
+
+ip [o] -p udp \
+       -s $home --sport $uprv_ports \
+       -d $any --dport 6277 -j ACCEPT
+
+ip [i] -p udp \
+       -s $any --sport 6277 \
+       -d $home --dport $uprv_ports -j ACCEPT
+
+#*********************************************************************
+# ssh: client access.
+
+ip [o] -p tcp \
+       -s $home --sport $uprv_ports \
+       -d $any --dport $client_ssh_port -j ACCEPT
+
+ip [i] -p tcp ! --syn \
+       -s $any --sport $client_ssh_port \
+       -d $home --dport $uprv_ports -j ACCEPT
+
+ip [o] -p tcp \
+       -s $home --sport $server_ssh_port_remote \
+       -d $any --dport $client_ssh_port -j ACCEPT
+
+ip [i] -p tcp ! --syn \
+       -s $any --sport $client_ssh_port \
+       -d $home --dport $server_ssh_port_remote -j ACCEPT 
+
+# ssh: client access (port 822)
+
+ip [o] -p tcp \
+       -s $home --sport $uprv_ports \
+       -d $any --dport 822 -j ACCEPT
+
+ip [i] -p tcp ! --syn \
+       -s $any --sport 822 \
+       -d $home --dport $uprv_ports -j ACCEPT
+
+ip [o] -p tcp \
+       -s $home --sport $server_ssh_port_remote \
+       -d $any --dport 822 -j ACCEPT
+
+ip [i] -p tcp ! --syn \
+       -s $any --sport 822 \
+       -d $home --dport $server_ssh_port_remote -j ACCEPT
+
+#*********************************************************************
+# ssh: home server access.
+
+echo -n "accept ssh hosts from file..     "
+if [ -f $cfgdir/fw.sshd ]; then
+   cat $cfgdir/fw.sshd | grep "^[0-9]" | awk '{print $1}' | \
+   while read x
+     do
+       ip [i] -p tcp \
+              -s $x --sport $uprv_ports \
+              -d $home --dport $server_ssh_port -j ACCEPT
+
+       ip [o] -p tcp ! --syn \
+              -s $home --sport $server_ssh_port \
+              -d $x --dport $uprv_ports -j ACCEPT
+
+       ip [i] -p tcp \
+              -s $x --sport $server_ssh_port_remote \
+              -d $home --dport $server_ssh_port -j ACCEPT
+
+       ip [o] -p tcp ! --syn \
+              -s $home --sport $server_ssh_port \
+              -d $x --dport $server_ssh_port_remote -j ACCEPT
+     done
+   echo "ok. (fw.sshd)"
+else
+   ip [i] -p tcp \
+          -s $any --sport $uprv_ports \
+          -d $home --dport $server_ssh_port -j ACCEPT
+
+   ip [o] -p tcp ! --syn \
+          -s $home --sport $server_ssh_port \
+          -d $any --dport $uprv_ports -j ACCEPT
+
+   ip [i] -p tcp \
+          -s $any --sport $server_ssh_port_remote \
+          -d $home --dport $server_ssh_port -j ACCEPT
+
+   ip [o] -p tcp ! --syn \
+          -s $home --sport $server_ssh_port \
+          -d $any --dport $server_ssh_port_remote -j ACCEPT
+   echo "file not found. (fw.sshd)"
+fi
+
+#*********************************************************************
+# ftp: client access.
+
+ip [o] -p tcp \
+       -s $home --sport $uprv_ports \
+       -d $any --dport $client_ftp_port -j ACCEPT
+
+ip [i] -p tcp ! --syn \
+       -s $any --sport $client_ftp_port \
+       -d $home --dport $uprv_ports -j ACCEPT
+
+ip [i] -p tcp \
+       -s $any --sport 20 \
+       -d $home --dport $uprv_ports -j ACCEPT
+
+ip [o] -p tcp ! --syn \
+       -s $home --sport $uprv_ports \
+       -d $any --dport 20 -j ACCEPT
+
+# ftp: passive.
+
+ip [i] -p tcp -m state --state ESTABLISHED -j ACCEPT
+
+#*********************************************************************
+# ftp: home server access.
+
+echo -n "accept ftp hosts from file..     "
+if [ "$server_ftp" == "1" ]; then
+  if [ -f $cfgdir/fw.ftpd ]; then
+     cat $cfgdir/fw.ftpd | grep "^[0-9]" | awk '{print $1}' | \
+     while read x
+       do
+	  ip [i] -p tcp \
+       		 -s $x --sport $uprv_ports \
+       		 -d $home --dport $server_ftp_port -j ACCEPT
+
+	  ip [o] -p tcp ! --syn \
+       		 -s $home --sport $server_ftp_port \
+       		 -d $x --dport $uprv_ports -j ACCEPT
+
+	  ip [o] -p tcp \
+		 -s $home --sport 20 \
+		 -d $x --dport $uprv_ports -j ACCEPT
+
+	  ip [i] -p tcp ! --syn \
+       		 -s $x --sport $uprv_ports \
+       		 -d $home --dport 20 -j ACCEPT
+       done
+     echo "ok. (fw.ftpd)"
+  else
+     ip [i] -p tcp \
+    	    -s $any --sport $uprv_ports \
+       	    -d $home --dport $server_ftp_port -j ACCEPT
+
+     ip [o] -p tcp ! --syn \
+            -s $home --sport $server_ftp_port \
+            -d $any --dport $uprv_ports -j ACCEPT
+
+     ip [o] -p tcp \
+            -s $home --sport 20 \
+            -d $any --dport $uprv_ports -j ACCEPT
+
+     ip [i] -p tcp ! --syn \
+            -s $any --sport $uprv_ports \
+            -d $home --dport 20 -j ACCEPT
+     echo "file not found. (fw.ftpd)"
+  fi
+else
+  echo "ok. (disabled)"
+fi
+
+#*********************************************************************
+# telnet: client access.
+
+ip [o] -p tcp \
+       -s $home --sport $uprv_ports \
+       -d $any --dport $client_telnet_port -j ACCEPT
+
+ip [i] -p tcp ! --syn \
+       -s $any --sport $client_telnet_port \
+       -d $home --dport $uprv_ports -j ACCEPT
+
+#*********************************************************************
+# telnet: home server access.
+
+echo -n "accept telnet hosts from file..  "
+if [ "$server_telnet" == "1" ]; then
+  if [ -f $cfgdir/fw.telnetd ]; then
+     cat $cfgdir/fw.telnetd | grep "^[0-9]" | awk '{print $1}' | \
+     while read x
+       do
+	  ip [i] -p tcp \
+       		 -s $x --sport $uprv_ports \
+       		 -d $home --dport $server_telnet_port -j ACCEPT
+
+	  ip [o] -p tcp ! --syn \
+       		 -s $home --sport $server_telnet_port \
+       		 -d $x --dport $uprv_ports -j ACCEPT
+       done
+     echo "ok. (fw.telnetd)"
+  else
+     ip [i] -p tcp \
+            -s $any --sport $uprv_ports \
+            -d $home --dport $server_telnet_port -j ACCEPT
+
+     ip [o] -p tcp ! --syn \
+            -s $home --sport $server_telnet_port \
+            -d $any --dport $uprv_ports -j ACCEPT
+     echo "file not found. (fw.telnetd)"
+  fi
+else
+  echo "ok. (disabled)"
+fi
+
+#*********************************************************************
+# smtp: client access.
+
+ip [o] -p tcp \
+       -s $home --sport $uprv_ports \
+       -d $any --dport $client_smtp_port -j ACCEPT
+
+ip [i] -p tcp ! --syn \
+       -s $any --sport $client_smtp_port \
+       -d $home --dport $uprv_ports -j ACCEPT
+
+#*********************************************************************
+# smtp: home server access.
+
+echo -n "accept smtp hosts from any/0..   "
+if [ "$server_smtp" == "1" ]; then
+  ip [i] -p tcp \
+         -s $any --sport $uprv_ports \
+         -d $home --dport $server_smtp_port -j ACCEPT
+
+  ip [o] -p tcp ! --syn \
+         -s $home --sport $server_smtp_port \
+         -d $any --dport $uprv_ports -j ACCEPT
+  echo "ok. (enabled)"
+else
+  echo "ok. (disabled)"
+fi
+
+#*********************************************************************
+# time: client access.
+
+ip [o] -p tcp \
+       -s $home --sport $uprv_ports \
+       -d $any --dport 37 -j ACCEPT
+
+ip [i] -p tcp ! --syn \
+       -s $any --sport 37 \
+       -d $home --dport $uprv_ports -j ACCEPT
+
+#*********************************************************************
+# whois: client access.
+
+ip [o] -p tcp \
+       -s $home --sport $uprv_ports \
+       -d $any --dport 43 -j ACCEPT
+
+ip [i] -p tcp ! --syn \
+       -s $any --sport 43 \
+       -d $home --dport $uprv_ports -j ACCEPT
+
+#*********************************************************************
+# dns: access.
+
+echo -n "accept ns queries/o from file..  "
+if [ -f $cfgdir/fw.dns.out ]; then
+   cat $cfgdir/fw.dns.out | grep "^[0-9]" | awk '{print $1}' | \
+   while read x
+     do
+       ip [o] -p udp \
+              -s $home --sport $uprv_ports \
+              -d $x --dport 53 -j ACCEPT
+
+       ip [i] -p udp \
+              -s $x --sport 53 \
+              -d $home --dport $uprv_ports -j ACCEPT
+
+       ip [o] -p tcp \
+              -s $home --sport $uprv_ports \
+              -d $x --dport 53 -j ACCEPT
+
+       ip [i] -p tcp ! --syn \
+              -s $x --sport 53 \
+              -d $home --dport $uprv_ports -j ACCEPT
+
+       ip [o] -p udp \
+              -s $home --sport 53 \
+              -d $x --dport 53 -j ACCEPT
+
+       ip [i] -p udp \
+              -s $x --sport 53 \
+              -d $home --dport 53 -j ACCEPT
+     done
+   echo "ok. (fw.dns.out)"
+else
+   ip [o] -p udp \
+	  -s $home --sport $uprv_ports \
+	  -d $any --dport 53 -j ACCEPT
+
+   ip [i] -p udp \
+	  -s $any --sport 53 \
+	  -d $home --dport $uprv_ports -j ACCEPT
+
+   ip [o] -p tcp \
+          -s $home --sport $uprv_ports \
+          -d $any --dport 53 -j ACCEPT
+
+   ip [i] -p tcp ! --syn \
+          -s $any --sport 53 \
+          -d $home --dport $uprv_ports -j ACCEPT
+
+   ip [o] -p udp \
+          -s $home --sport 53 \
+          -d $any --dport 53 -j ACCEPT
+
+   ip [i] -p udp \
+          -s $any --sport 53 \
+          -d $home --dport 53 -j ACCEPT
+   echo "file not found. (fw.dns.out)"
+fi
+
+#*********************************************************************
+# dns: home server access.
+
+echo -n "accept ns queries/i from file..  "
+if [ "$server_dns" == "1" ]; then
+ if [ -f $cfgdir/fw.dns.in ]; then
+   cat $cfgdir/fw.dns.in | grep "^[0-9]" | awk '{print $1}' | \
+   while read x
+     do
+       ip [i] -p udp \
+              -s $x --sport $uprv_ports \
+              -d $home --dport $server_dns_port -j ACCEPT
+
+       ip [o] -p udp \
+              -s $home --sport $server_dns_port \
+              -d $x --dport $uprv_ports -j ACCEPT
+
+       ip [i] -p tcp \
+              -s $x --sport $uprv_ports \
+              -d $home --dport $server_dns_port -j ACCEPT
+
+       ip [o] -p tcp ! --syn \
+              -s $home --sport $server_dns_port \
+              -d $x --dport $uprv_ports -j ACCEPT
+
+       ip [i] -p udp \
+              -s $x --sport $server_dns_port \
+              -d $home --dport $server_dns_port -j ACCEPT
+
+       ip [o] -p udp \
+              -s $home --sport $server_dns_port \
+              -d $x --dport $server_dns_port -j ACCEPT
+     done
+   echo "ok. (fw.dns.in)"
+ else
+   ip [i] -p udp \
+          -s $any --sport $uprv_ports \
+          -d $home --dport $server_dns_port -j ACCEPT
+
+   ip [o] -p udp \
+          -s $home --sport $server_dns_port \
+          -d $any --dport $uprv_ports -j ACCEPT
+
+   ip [i] -p tcp \
+          -s $any --sport $uprv_ports \
+          -d $home --dport $server_dns_port -j ACCEPT
+
+   ip [o] -p tcp ! --syn \
+          -s $home --sport $server_dns_port \
+          -d $any --dport $uprv_ports -j ACCEPT
+
+   ip [i] -p udp \
+          -s $any --sport $server_dns_port \
+          -d $home --dport $server_dns_port -j ACCEPT
+
+   ip [o] -p udp \
+           -s $home --sport $server_dns_port \
+           -d $any --dport $server_dns_port -j ACCEPT
+   echo "file not found. (fw.dns.in)"
+ fi
+else
+ echo "ok. (disabled)"
+fi
+
+#*********************************************************************
+# finger: client access.
+
+ip [o] -p tcp \
+       -s $home --sport $uprv_ports \
+       -d $any --dport 79 -j ACCEPT
+
+ip [i] -p tcp ! --syn \
+       -s $any --sport 79 \
+       -d $home --dport $uprv_ports -j ACCEPT
+
+#*********************************************************************
+# http: client access.
+
+ip [o] -p tcp \
+       -s $home --sport $uprv_ports \
+       -d $any --dport $client_http_port -j ACCEPT
+
+ip [i] -p tcp ! --syn \
+       -s $any --sport $client_http_port \
+       -d $home --dport $uprv_ports -j ACCEPT
+
+ip [o] -p tcp \
+       -s $home --sport $uprv_ports \
+       -d $any --dport 81 -j ACCEPT
+
+ip [i] -p tcp ! --syn \
+       -s $any --sport 81 \
+       -d $home --dport $uprv_ports -j ACCEPT
+#*********************************************************************
+# http: home server access.
+
+echo -n "accept http hosts from any/0..   "
+if [ "$server_http" == "1" ]; then
+  ip [i] -p tcp \
+         -s $any --sport $uprv_ports \
+         -d $home --dport $server_http_port -j ACCEPT
+
+  ip [o] -p tcp ! --syn \
+         -s $home --sport $server_http_port \
+         -d $any --dport $uprv_ports -j ACCEPT
+  echo "ok. (enabled)"
+else
+  echo "ok. (disabled)"
+fi
+
+#*********************************************************************
+# pop3: client access.
+
+ip [o] -p tcp \
+       -s $home --sport $uprv_ports \
+       -d $client_pop3 --dport $client_pop3_port -j ACCEPT
+
+ip [i] -p tcp ! --syn \
+       -s $client_pop3 --sport $client_pop3_port \
+       -d $home --dport $uprv_ports -j ACCEPT
+
+#*********************************************************************
+# pop3: home server pop3 access.
+
+echo -n "accept pop3 hosts from file..    "
+if [ "$server_pop3" == "1" ]; then
+  if [ -f $cfgdir/fw.pop3 ]; then
+     cat $cfgdir/fw.pop3 | grep "^[0-9]" | awk '{print $1}' | \
+     while read x
+       do
+          ip [i] -p tcp \
+                 -s $x --sport $uprv_ports \
+                 -d $home --dport $server_pop3_port -j ACCEPT
+
+          ip [o] -p tcp ! --syn \
+                 -s $home --sport $server_pop3_port \
+                 -d $x --dport $uprv_ports -j ACCEPT
+       done
+     echo "ok. (fw.pop3)"
+  else
+     ip [i] -p tcp \
+            -s $any --sport $uprv_ports \
+            -d $home --dport $server_pop3_port -j ACCEPT
+
+     ip [o] -p tcp ! --syn \
+            -s $home --sport $server_pop3_port \
+            -d $any --dport $uprv_ports -j ACCEPT
+     echo "file not found. (fw.pop3)"
+  fi
+else
+  echo "ok. (disabled)"
+fi
+
+#*********************************************************************
+# auth: client access.
+
+ip [o] -p tcp \
+       -s $home --sport $uprv_ports \
+       -d $any --dport $client_auth_port -j ACCEPT
+
+ip [i] -p tcp ! --syn \
+       -s $any --sport $client_auth_port \
+       -d $home --dport $uprv_ports -j ACCEPT
+
+#*********************************************************************
+# auth: home server access.
+
+echo -n "accept auth requests from file.. "
+if [ -f $cfgdir/fw.irc ]; then
+   cat $cfgdir/fw.irc | grep "^[0-9]" | awk '{print $1}' | \
+   while read ircaddress
+     do
+	ip [i] -p tcp \
+	       -s $ircaddress --sport $uprv_ports \
+	       -d $home --dport $server_auth_port -j ACCEPT
+
+	ip [o] -p tcp ! --syn \
+	       -s $home --sport $server_auth_port \
+	       -d $ircaddress --dport $uprv_ports -j ACCEPT
+     done
+   echo "ok. (fw.irc)"
+else
+   ip [i] -p tcp \
+          -s $any --sport $uprv_ports \
+          -d $home --dport $server_auth_port -j ACCEPT
+
+   ip [o] -p tcp ! --syn \
+          -s $home --sport $server_auth_port \
+          -d $any --dport $uprv_ports -j ACCEPT
+   echo "file not found. (fw.irc)"
+fi
+
+ip [i] -p tcp \
+       -d $home --dport $server_auth_port -j REJECT
+
+#*********************************************************************
+# nntp: client access.
+
+ip [o] -p tcp \
+       -s $home --sport $uprv_ports \
+       -d $client_nntp --dport $client_nntp_port -j ACCEPT
+
+ip [i] -p tcp ! --syn \
+       -s $client_nntp --sport $client_nntp_port \
+       -d $home --dport $uprv_ports -j ACCEPT
+
+#*********************************************************************
+# 443: https client access.
+
+ip [o] -p tcp \
+       -s $home --sport $uprv_ports \
+       -d $any --dport 443 -j ACCEPT
+
+ip [i] -p tcp ! --syn \
+       -s $any --sport 443 \
+       -d $home --dport $uprv_ports -j ACCEPT
+
+#*********************************************************************
+# icq: client access.
+
+echo -n "accept icq connects from file..  "
+if [ "$client_icq" == "1" ]; then
+  if [ -f $cfgdir/fw.icq ]; then
+     cat $cfgdir/fw.icq | grep "^[0-9]" | awk '{print $1}' | \
+     while read x
+       do
+          ip [o] -p tcp \
+                 -s $home --sport $uprv_ports \
+                 -d $x --dport $client_icq_port -j ACCEPT
+
+          ip [i] -p tcp ! --syn \
+                 -s $x --sport $client_icq_port \
+                 -d $home --dport $uprv_ports -j ACCEPT
+
+	  ip [o] -p udp \
+       		 -s $home --sport $uprv_ports \
+       		 -d $x --dport $client_icq_port -j ACCEPT
+
+	  ip [i] -p udp \
+       		 -s $x --sport $client_icq_port \
+       		 -d $home --dport $uprv_ports -j ACCEPT
+       done
+     echo "ok. (fw.icq)"
+  else
+     echo "file not found. (fw.icq)"
+  fi
+else
+  echo "ok. (disabled)"
+fi
+
+#*********************************************************************
+# irc: irc client access.
+
+echo -n "accept outbound irc from file..  "
+if [ -f $cfgdir/fw.irc ]; then
+   cat $cfgdir/fw.irc | grep "^[0-9]" | awk '{print $1,$2}' | \
+   while read irc_address irc_ports
+     do
+        ip [o] -p tcp \
+               -s $home --sport $uprv_ports \
+               -d $irc_address --dport $irc_ports -j ACCEPT
+
+        ip [i] -p tcp ! --syn \
+               -s $irc_address --sport $irc_ports \
+               -d $home --dport $uprv_ports -j ACCEPT
+     done
+   echo "ok. (fw.irc)"
+else
+   echo "file not found. (fw.irc)"
+fi
+
+#*********************************************************************
+# irc: home server irc access.
+
+echo -n "accept inbound irc from any/0..  "
+if [ "$server_irc" == "1" ]; then
+  ip [i] -p tcp \
+         -s $any --sport $uprv_ports \
+         -d $home --dport $server_irc_port -j ACCEPT
+
+  ip [o] -p tcp ! --syn \
+         -s $home --sport $server_irc_port \
+         -d $any --dport $uprv_ports -j ACCEPT
+  echo "ok. (enabled)"
+else
+  echo "ok. (disabled)"
+fi
+
+#*********************************************************************
+# dcc: direct chat connections.
+
+echo -n "accept dcc connects from file..  "
+if [ -f $cfgdir/fw.dcc ]; then
+   cat $cfgdir/fw.dcc | grep "^[0-9]" | awk '{print $1}' | \
+   while read x
+     do
+        ip [i] -p tcp \
+	       -s $x --sport $uprv_ports \
+	       -d $home --dport $uprv_ports -j ACCEPT
+
+        ip [o] -p tcp ! --syn \
+	       -s $home --sport $uprv_ports \
+	       -d $x --dport $uprv_ports -j ACCEPT
+     done
+   echo "ok. (fw.dcc)"
+else
+   ip [i] -p tcp \
+          -s $any --sport $uprv_ports \
+          -d $home --dport $uprv_ports -j ACCEPT
+
+   ip [o] -p tcp ! --syn \
+          -s $home --sport $uprv_ports \
+          -d $any --dport $uprv_ports -j ACCEPT
+   echo "file not found (fw.dcc)"
+fi
+
+#*********************************************************************
+# bnc: home server access.
+
+echo -n "accept bnc requests from file..  "
+if [ -f $cfgdir/fw.bnc ]; then
+   cat $cfgdir/fw.bnc | grep "^[0-9]" | awk '{print $1,$2}' | \
+   while read bnc_address bnc_port
+     do
+        ip [i] -p tcp \
+               -s $bnc_address --sport $uprv_ports \
+               -d $home --dport $bnc_port -j ACCEPT
+
+        ip [o] -p tcp ! --syn \
+               -s $home --sport $bnc_port \
+               -d $bnc_address --dport $uprv_ports -j ACCEPT
+     done
+   echo "ok. (fw.bnc)"
+else
+   echo "file not found. (fw.bnc)"
+fi
+
+#*********************************************************************
+# bot: allow links.
+
+echo -n "accept bot links from file..     "
+if [ -f $cfgdir/fw.bot ]; then
+   cat $cfgdir/fw.bot | grep "^[0-9]" | awk '{print $1,$2}' | \
+   while read bot_address bot_port
+     do
+        ip [i] -p tcp \
+               -s $bot_address --sport $uprv_ports \
+               -d $home --dport $bot_port -j ACCEPT
+
+        ip [o] -p tcp ! --syn \
+               -s $home --sport $bot_port \
+               -d $bot_address --dport $uprv_ports -j ACCEPT
+
+        ip [o] -p tcp \
+               -s $home --sport $uprv_ports \
+               -d $bot_address --dport $uprv_ports -j ACCEPT
+
+        ip [i] -p tcp ! --syn \
+               -s $bot_address --sport $uprv_ports \
+               -d $home --dport $uprv_ports -j ACCEPT
+     done
+   echo "ok. (fw.bot)"
+else
+   echo "file not found. (fw.bot)"
+fi
+
+#*********************************************************************
+# webmin: home server access.
+
+echo -n "accept webmin hosts from file..  "
+if [ "$server_webmin" == "1" ]; then
+     ip [i] -p tcp \
+            -s $any --sport $uprv_ports \
+            -d $home --dport $server_webmin_port -j ACCEPT
+
+     ip [o] -p tcp ! --syn \
+            -s $home --sport $server_webmin_port \
+            -d $any --dport $uprv_ports -j ACCEPT
+     echo "ok. (enabled)"
+else
+  echo "ok. (disabled)"
+fi
+
+#*********************************************************************
+# usermin: home server access.
+
+echo -n "accept usermin hosts from file.. "
+if [ "$server_usermin" == "1" ]; then
+     ip [i] -p tcp \
+            -s $any --sport $uprv_ports \
+            -d $home --dport $server_usermin_port -j ACCEPT
+
+     ip [o] -p tcp ! --syn \
+            -s $home --sport $server_usermin_port \
+            -d $any --dport $uprv_ports -j ACCEPT
+     echo "ok. (enabled)"
+else
+  echo "ok. (disabled)"
+fi
+
+#*********************************************************************
+# outbound traceroute.
+
+ip [o] -p udp -s $home --sport $tr_src -d $any --dport $tr_dest -j ACCEPT
+
+# allow inbound traceroute from trusted nets.
+
+ip [i] -p udp -s $net_1 --sport $tr_src -d $home --dport $tr_dest -j ACCEPT
+ip [i] -p udp -s $net_2 --sport $tr_src -d $home --dport $tr_dest -j ACCEPT
+
+#*********************************************************************
+# dest_unreachable.
+
+ip [i] -p icmp -s $any  --icmp-type destination-unreachable -d $home  -j ACCEPT
+ip [o] -p icmp -s $home --icmp-type destination-unreachable -d $net_1 -j ACCEPT
+ip [o] -p icmp -s $home --icmp-type destination-unreachable -d $net_2 -j ACCEPT
+ip [o] -p icmp -s $home --icmp-type fragmentation-needed -d $any -j ACCEPT
+
+# 04: source_quench.
+
+ip [i] -p icmp -s $any  --icmp-type source-quench -d $home -j ACCEPT
+ip [o] -p icmp -s $home --icmp-type source-quench -d $any  -j ACCEPT
+
+# 11: time_exceeded.
+
+ip [i] -p icmp -s $any  --icmp-type time-exceeded -d $home  -j ACCEPT
+ip [o] -p icmp -s $home --icmp-type time-exceeded -d $net_1 -j ACCEPT
+ip [o] -p icmp -s $home --icmp-type time-exceeded -d $net_2 -j ACCEPT
+
+# 12: parameter_problem.
+
+ip [i] -p icmp -s $any  --icmp-type parameter-problem -d $home -j ACCEPT
+ip [o] -p icmp -s $home --icmp-type parameter-problem -d $any  -j ACCEPT
+
+# allow outgoing pings.
+
+ip [o] -p icmp -s $home --icmp-type echo-request -d $any  -j ACCEPT
+ip [i] -p icmp -s $any  --icmp-type echo-reply -d $home -j ACCEPT
+
+# allow inbound pings from trusted nets.
+
+ip [i] -p icmp -s $net_1 --icmp-type echo-request -d $home -j ACCEPT
+ip [i] -p icmp -s $net_2 --icmp-type echo-request -d $home -j ACCEPT
+
+ip [o] -p icmp -s $home --icmp-type echo-reply -d $net_1 -j ACCEPT
+ip [o] -p icmp -s $home --icmp-type echo-reply -d $net_2 -j ACCEPT
+
+#*********************************************************************
+# ipv6.
+
+echo -n "accept ipv6 protocol (41)..      "
+if [ "$ipv6" == "1" ]; then
+   ip [i] -p ipv6 -j ACCEPT
+   ip [o] -p ipv6 -j ACCEPT
+   echo "ok. (enabled)"
+else
+  echo "ok. (disabled)"
+fi
+
+#*********************************************************************
+# log tcp/udp/icmp inbound/outbound packets.
+
+echo
+echo -n "logging "
+if [ "$log" == "1" ]; then
+   ip [i] -p tcp  -j LOG
+   ip [i] -p udp  -j LOG
+   ip [i] -p icmp -j LOG
+   ip [o] -p tcp  -j LOG
+   ip [o] -p udp  -j LOG
+   ip [o] -p icmp -j LOG
+   echo "enabled. (tcp, udp, icmp)"
+else
+   echo "disabled."
+fi
+
+echo "complete."
+echo 
+
+#-EOF

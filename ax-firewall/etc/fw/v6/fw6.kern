@@ -1,0 +1,12 @@
+# /etc/fw/fw6.kern
+# initialize kernel variables.
+#-AndrewX
+
+# 1: enable forwarding.
+
+if [ -f /proc/sys/net/ipv6/conf/all/forwarding ]; then
+  echo 1 > /proc/sys/net/ipv6/conf/all/forwarding
+fi
+
+#-EOF
+

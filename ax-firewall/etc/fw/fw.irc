@@ -1,0 +1,7 @@
+# /etc/fw/fw.irc
+# Allow irc/auth connections from hosts below.
+#-AndrewX
+
+# Address	 # Port(s)	# Name
+
+#-EOF

@@ -1,0 +1,7 @@
+# /etc/fw/fw6.fwd
+# Allow packet forwarding from hosts below.
+#-AndrewX
+
+# Address	 		# Name
+
+#-EOF

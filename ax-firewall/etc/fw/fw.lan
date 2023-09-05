@@ -1,0 +1,9 @@
+# /etc/fw/fw.lan
+# Allow incoming lan connections.
+#-AndrewX
+
+# Address
+
+192.168.0.0/16		# LAN.
+
+#-EOF

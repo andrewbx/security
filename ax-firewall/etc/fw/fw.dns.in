@@ -1,0 +1,8 @@
+# /etc/fw/fw.dns.in
+# Allow dns queries from following hosts.
+#-AndrewX
+
+213.107.1.0/16		# cable.ntl.com.
+194.168.4.0/24		# ntl dns.
+
+#-EOF
