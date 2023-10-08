@@ -10,8 +10,6 @@
 #set -x
 
 nmap_bin=$(which nmap)
-host_ip="${1:-127.0.0.1}"
-proc_no="${2:-5}"
 
 function help()
 {
