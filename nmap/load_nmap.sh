@@ -51,7 +51,7 @@ function nmap_start()
 
 main()
 {
-    if (( $# < 2 )); then
+    if (( $# < 1 )); then
         help
     else
         while [ $# -ne 0 ]; do
