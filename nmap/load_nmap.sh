@@ -3,7 +3,7 @@
 # Program     : load_nmap.sh
 # Version     : v1.0
 # Description : Simulate nmap process version load testing.
-# Syntax      : load_nmap <host> <process no>
+# Syntax      : load_nmap -t <host> -n <process no> | -k
 # Author      : Andrew (andrew@devnull.uk)
 #--------------------------------------------------------------------------
 
